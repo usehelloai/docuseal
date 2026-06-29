@@ -136,7 +136,12 @@ class ProcessSubmitterCompletionJob
 
     return if configs.value['enabled'] == false
 
-    to = submitter.submission.submitters.reject { |e| e.preferences['send_email'] == false }
+    account_user_emails = submitter.account.users
+                                           .where(email: submitter.submission.submitters.filter_map(&:email))
+                                           .pluck(:email).to_set
+
+    to = submitter.submission.submitters
+                  .reject { |e| e.preferences['send_email'] == false && !account_user_emails.include?(e.email) }
                   .sort_by(&:completed_at).select(&:email?).map(&:friendly_name)
 
     return if to.blank?
@@ -181,7 +186,7 @@ class ProcessSubmitterCompletionJob
 
           next unless sub
 
-          sub.completed_at.blank? && sub.sent_at.blank?
+          sub.completed_at.blank?
         end
       end
 

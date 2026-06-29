@@ -12,3 +12,14 @@ if !ENV['SIDEKIQ_BASIC_AUTH_PASSWORD'].to_s.empty? && defined?(Sidekiq::Web)
 end
 
 Sidekiq.strict_args!
+
+Sidekiq.configure_server do |config|
+  config.death_handlers << lambda { |job, ex|
+    Rails.logger.error(
+      "[Sidekiq] Job exhausted retries: class=#{job['class']} " \
+      "error=#{ex.class}: #{ex.message} " \
+      "args=#{job['args'].inspect}"
+    )
+    Rollbar.error(ex, sidekiq_job: job.slice('class', 'args', 'queue')) if defined?(Rollbar)
+  }
+end
