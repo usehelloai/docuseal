@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class SessionsController < Devise::SessionsController
+  layout 'plain'
+
   before_action :configure_permitted_parameters
 
   around_action :with_browser_locale
