@@ -1,0 +1,52 @@
+# Stage-4 PR reviewer: runs the active family's two PR-reviewer models (config/pr_reviewers.yml)
+# on the PR diff and posts their findings as a PR comment. Replaces the retired @codex PR review.
+#
+# SECURITY: triggered ONLY by an "@review" comment from an authorized member (OWNER/MEMBER/
+# COLLABORATOR), never by a fork's PR event. The job checks out the DEFAULT branch, so it always
+# runs main's trusted copy of the script; the PR's own diff is fetched as DATA (gh pr diff), never
+# executed. This closes the fork "pwn request" path (untrusted code + secrets in one job).
+name: pr-review
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: pr-review-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: PR review
+    if: >-
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, '@review') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read          # read the trusted (default-branch) script
+      pull-requests: write     # post the review comment
+    steps:
+      - name: Checkout default branch (trusted script, not the PR head)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml==6.0.2
+
+      - name: Run PR review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.issue.number }}
+          NVIDIA_API_KEY: ${{ secrets.AI_REVIEW_NVIDIA_API_KEY }}      # zizmor: ignore[secrets-outside-env]
+          TOGETHER_API_KEY: ${{ secrets.AI_REVIEW_TOGETHER_API_KEY }}  # zizmor: ignore[secrets-outside-env]
+        run: python3 scripts/pr_review.py --repo "$REPO" --pr "$PR"
