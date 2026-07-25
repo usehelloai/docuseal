@@ -1,0 +1,35 @@
+# Stage-4 PR reviewers (the on-GitHub, post-push review layer). Self-contained: scripts/pr_review.py
+# and .github/workflows/pr_review.yml read ONLY this file, so it does not depend on the EOS lanes.
+#
+# Switch the whole family with the single `active:` line below. `families:` mirrors the build-family
+# table; each entry is the two PR reviewers for that family (a builder is never in its own list).
+# `models:` gives each reviewer its OpenAI-compatible endpoint, model id, and the env var holding
+# its API key (set as GitHub repo/org secrets: NVIDIA_API_KEY, TOGETHER_API_KEY).
+
+active: local
+
+families:
+  local:    [nemotron-3-ultra, glm-5.2]
+  opus:     [nemotron-3-ultra, qwen-3.5]
+  fable:    [nemotron-3-ultra, qwen-3.5]
+  glm:      [nemotron-3-ultra, kimi-2.7]
+  deepseek: [nemotron-3-ultra, kimi-2.7]
+  qwen:     [nemotron-3-ultra, kimi-2.7]
+
+models:
+  nemotron-3-ultra:
+    base_url: https://integrate.api.nvidia.com/v1
+    model: nvidia/nemotron-3-ultra-550b-a55b
+    key_env: NVIDIA_API_KEY
+  glm-5.2:
+    base_url: https://integrate.api.nvidia.com/v1
+    model: z-ai/glm-5.2
+    key_env: NVIDIA_API_KEY
+  qwen-3.5:
+    base_url: https://integrate.api.nvidia.com/v1
+    model: qwen/qwen3.5-397b-a17b
+    key_env: NVIDIA_API_KEY
+  kimi-2.7:
+    base_url: https://api.together.xyz/v1
+    model: moonshotai/Kimi-K2.7-Code
+    key_env: TOGETHER_API_KEY
