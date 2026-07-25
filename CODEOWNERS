@@ -1,0 +1,30 @@
+# Fleet-standard CODEOWNERS (lean EOS: the human CODEOWNERS is the merge authority).
+# The catch-all makes every PR require owner review; the team lines add granular
+# ownership for sensitive paths. Adding a compliance framework or a sensitive path is a
+# CODEOWNERS edit, never code. See standards/engineering_operating_system.md (WSE).
+
+* @usehelloai/engineering @bemall
+
+.github/workflows/**   @usehelloai/devops-reviewers @bemall
+.github/actions/**     @usehelloai/devops-reviewers @bemall
+CODEOWNERS             @usehelloai/devops-reviewers @bemall
+infra/**               @usehelloai/devops-reviewers @bemall
+terraform/**           @usehelloai/devops-reviewers @bemall
+docker/**              @usehelloai/devops-reviewers @bemall
+**/Dockerfile*         @usehelloai/devops-reviewers @bemall
+
+auth/**                @usehelloai/security-reviewers @bemall
+identity/**            @usehelloai/security-reviewers @bemall
+accounts/**            @usehelloai/security-reviewers @bemall
+compliance/**          @usehelloai/security-reviewers @bemall
+
+billing/**             @usehelloai/billing-reviewers @usehelloai/security-reviewers @bemall
+payments/**            @usehelloai/billing-reviewers @usehelloai/security-reviewers @bemall
+
+migrations/**          @usehelloai/platform-reviewers @usehelloai/security-reviewers @bemall
+
+agents/**              @usehelloai/ai-reviewers @bemall
+prompts/**             @usehelloai/ai-reviewers @bemall
+skills/**              @usehelloai/ai-reviewers @bemall
+
+standards/**           @usehelloai/docs-reviewers @bemall
