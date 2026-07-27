@@ -1,0 +1,33 @@
+name: fleet-git-safety
+
+# Fleet git-safety gate (WSE incident 2026-07-26, R3), adopted from
+# workspace-shared-engineering. Runs the vendored scripts/lint_fleet_git_safety.sh,
+# which rejects working-tree/branch destroyers (git checkout -f/-B/-- <path>,
+# git switch -f/--discard-changes/-C, git restore <worktree>, reset --hard,
+# clean -fd, git stash) in this repo's committed scripts/**/*.sh unless a justified
+# `# fleet-git-safe: <reason>` marker is present. The lint file is fleet-vendored
+# and drift-monitored by WSE check_fleet_settings.py; update it only from the WSE
+# canonical.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-git-safety-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fleet-git-safety:
+    name: fleet-git-safety
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Reject working-tree/branch destroyers in committed scripts
+        run: bash scripts/lint_fleet_git_safety.sh
