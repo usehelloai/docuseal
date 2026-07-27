@@ -141,7 +141,7 @@ class ProcessSubmitterCompletionJob
                                            .pluck(:email).to_set
 
     to = submitter.submission.submitters
-                  .reject { |e| e.preferences['send_email'] == false && !account_user_emails.include?(e.email) }
+                  .reject { |e| e.preferences['send_email'] == false && account_user_emails.exclude?(e.email) }
                   .sort_by(&:completed_at).select(&:email?).map(&:friendly_name)
 
     return if to.blank?
