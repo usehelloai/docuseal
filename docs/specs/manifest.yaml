@@ -1,0 +1,15 @@
+# docs/specs/manifest.yaml
+# spec_gate scope tier for docuseal.
+#
+# docuseal is a VENDOR FORK (governance_profile: vendor_or_integration_repo in
+# workspace_shared_engineering/config/fleet_registry.yml). It tracks upstream
+# DocuSeal and does not author product PRDs, so it does not run the spec-first
+# planning flow that product repos do. scope_tier is therefore `trivial`: the
+# spec_gate workflow is present so the fleet surface is uniform, but it always
+# passes and never blocks a vendor-tracking or integration PR. If this fork ever
+# grows Hello-specific product features that warrant a spec, raise the tier to
+# feature/major and add the specs under docs/specs/.
+change:
+  title: docuseal vendor-fork integration
+  scope_tier: trivial
+  owner: bernard
