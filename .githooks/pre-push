@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# pre-push: AI remediation loop local gate (authoritative enforcement).
+#
+# Blocks the push unless scripts/ai_preflight.sh (which runs `make validate`)
+# validated the EXACT commit(s) being pushed. This is robust where a
+# command-string hook is not: git passes the real refs and SHAs on stdin, so
+# `git -c k=v push`, env-prefixed pushes, and explicit refspecs
+# (`git push origin HEAD~1:branch`) are all evaluated against the actual SHA
+# being delivered, not the text of the command.
+#
+# Contract (githooks pre-push): stdin lines are
+#   <local_ref> SP <local_sha> SP <remote_ref> SP <remote_sha>
+# A zero local_sha (0000...) means a branch DELETE (nothing to validate).
+#
+# The stamp (.claude/cache/ai_preflight_ok = validated HEAD sha) is written by
+# scripts/ai_preflight.sh on `make validate` success. Fail-CLOSED: a missing or
+# mismatched stamp blocks.
+#
+# This is a discipline guardrail, not a tamper-proof control: an actor with
+# local shell access can bypass any local hook (edit the stamp, `--no-verify`,
+# unset core.hooksPath). The authoritative boundary is the PR's required CI
+# checks. The gate exists to stop the loop being skipped by omission, which is
+# how PR #74 reached 20-plus automated review rounds
+# (tasks/ai_remediation_loop_completion_handoff.md Section 5.1).
+#
+# Escape hatch (genuine no-op/exception pushes): HOOK_ALLOW_UNVALIDATED_PUSH=1.
+set -euo pipefail
+
+if [ "${HOOK_ALLOW_UNVALIDATED_PUSH:-0}" = "1" ]; then exit 0; fi
+
+repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$repo" ] || exit 0
+stamp_file="$repo/.claude/cache/ai_preflight_ok"
+
+zero="0000000000000000000000000000000000000000"
+stamp_sha=""
+[ -f "$stamp_file" ] && stamp_sha="$(tr -d '[:space:]' < "$stamp_file" 2>/dev/null || true)"
+
+unvalidated=""
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  [ -n "${local_sha:-}" ] || continue
+  [ "$local_sha" = "$zero" ] && continue   # branch deletion: nothing to push
+  # Peel annotated-tag objects to the commit they point at: tag pushes deliver
+  # the tag SHA on stdin, but the stamp records the commit SHA. For a commit
+  # SHA this is a no-op.
+  cmp_sha="$(git rev-parse "${local_sha}^{commit}" 2>/dev/null || printf '%s' "$local_sha")"
+  if [ -z "$stamp_sha" ]; then
+    unvalidated="${unvalidated} ${cmp_sha}(no-stamp)"
+  elif [ "$stamp_sha" != "$cmp_sha" ]; then
+    unvalidated="${unvalidated} ${cmp_sha}(stamp=${stamp_sha})"
+  fi
+done
+
+if [ -n "$unvalidated" ]; then
+  {
+    echo "pre-push BLOCKED by the AI remediation loop local gate."
+    echo "These commit(s) being pushed were not validated by 'make validate':${unvalidated}"
+    echo "Run 'bash scripts/ai_preflight.sh' on the commit you are pushing, then retry."
+    echo "Genuine no-op/exception push: HOOK_ALLOW_UNVALIDATED_PUSH=1 git push ... (state why)."
+  } >&2
+  exit 1
+fi
+exit 0

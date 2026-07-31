@@ -1,0 +1,141 @@
+# spec_first_saas_engineering: CI gate
+#
+# Drop this file into .github/workflows/spec_gate.yml in each repo.
+# Fails PRs that change application code without updating docs/specs/.
+
+name: spec_gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: spec-gate-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  spec_gate:
+    name: planning gate
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: checkout
+        # Pinned to v4.2.2 commit SHA 11bd71901bbe5b1630ceea73d27597364c9af683
+        # (see https://github.com/actions/checkout/releases/tag/v4.2.2) to remove
+        # supply-chain risk from floating tag references per security review.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: detect changes
+        id: changes
+        shell: bash
+        # Route the PR SHAs via env: rather than ${{ }} expansion in the run
+        # script (zizmor template-injection mitigation; they are GitHub-provided
+        # commit SHAs, but env: is the canonical safe pattern).
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          APP_PATHS_PATTERN='^(apps|app|services|packages|src|backend|frontend|lib|internal|alembic|scripts)(/|$)'
+          SPEC_PATH='^docs/specs/'
+
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+
+          echo "$changed" | grep -E "$APP_PATHS_PATTERN" > /tmp/app_changed || true
+          # Exclude the manifest itself from the real-spec count: editing only
+          # docs/specs/manifest.yaml (the tier/status tracker) is NOT a spec
+          # change, but the ^docs/specs/ pattern would otherwise count it as one
+          # and pass the gate with no actual spec touched (F12, canonical finding).
+          echo "$changed" | grep -E "$SPEC_PATH" | grep -v '^docs/specs/manifest\.yaml$' > /tmp/spec_changed || true
+
+          app_count=$(wc -l < /tmp/app_changed | tr -d ' ')
+          spec_count=$(wc -l < /tmp/spec_changed | tr -d ' ')
+
+          echo "app_changed_count=$app_count" >> "$GITHUB_OUTPUT"
+          echo "spec_changed_count=$spec_count" >> "$GITHUB_OUTPUT"
+
+      - name: read scope tier
+        id: tier
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="docs/specs/manifest.yaml"
+          if [[ ! -f "$manifest" ]]; then
+            echo "tier=missing" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tier=$(grep -E '^\s*scope_tier:\s*' "$manifest" | head -n1 | sed -E 's/.*scope_tier:\s*//' | tr -d '"' | tr -d "'" | awk '{print $1}')
+          echo "tier=${tier:-unknown}" >> "$GITHUB_OUTPUT"
+
+      - name: check pr description for bypass
+        id: bypass
+        shell: bash
+        env:
+          # Pass PR body via env to avoid shell injection through ${{ }} expansion
+          # in a `run:` script. The PR body is attacker-controlled text and could
+          # otherwise close a quoted heredoc and execute arbitrary shell.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s' "$PR_BODY" | grep -Eqi 'spec-gate-bypass:[[:space:]]*(true|yes|1)'; then
+            echo "bypassed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bypassed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: enforce
+        shell: bash
+        # Step outputs are locally computed (not attacker-controlled), but route
+        # them via env: rather than ${{ }} expansion in the run script -- the
+        # canonical zizmor template-injection mitigation, matching the PR_BODY step.
+        env:
+          APP: ${{ steps.changes.outputs.app_changed_count }}
+          SPEC: ${{ steps.changes.outputs.spec_changed_count }}
+          TIER: ${{ steps.tier.outputs.tier }}
+          BYPASSED: ${{ steps.bypass.outputs.bypassed }}
+        run: |
+          set -euo pipefail
+          app="$APP"
+          spec="$SPEC"
+          tier="$TIER"
+          bypassed="$BYPASSED"
+
+          echo "app_changed=$app  spec_changed=$spec  tier=$tier  bypassed=$bypassed"
+
+          if [[ "$bypassed" == "true" ]]; then
+            echo "::warning::Spec gate bypassed via PR description. Justification must be present."
+            exit 0
+          fi
+
+          if [[ "$app" -eq 0 ]]; then
+            echo "No application code changed. Gate passes."
+            exit 0
+          fi
+
+          if [[ "$tier" == "trivial" ]]; then
+            echo "Tier is trivial. Gate passes."
+            exit 0
+          fi
+
+          if [[ "$tier" == "missing" ]]; then
+            echo "::error::docs/specs/manifest.yaml is missing and app code is changing."
+            exit 1
+          fi
+
+          if [[ "$tier" == "feature" || "$tier" == "major" ]]; then
+            if [[ "$spec" -gt 0 ]]; then
+              echo "Specs updated for tier=$tier. Gate passes."
+              exit 0
+            fi
+            echo "::error::Tier is $tier but no specs under docs/specs/ were updated."
+            exit 1
+          fi
+
+          echo "::error::Unrecognized scope_tier '$tier' in manifest."
+          exit 1
