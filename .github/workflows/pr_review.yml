@@ -1,10 +1,24 @@
-# Stage-4 PR reviewer: runs the active family's two PR-reviewer models (config/pr_reviewers.yml)
-# on the PR diff and posts their findings as a PR comment. Replaces the retired @codex PR review.
+# CANONICAL product-repo @review workflow (R6, centralized model).
+#
+# Vendor this file into a product repo as `.github/workflows/pr_review.yml`. It does NOT
+# vendor the reviewer Python: it checks out workspace-shared-engineering at main and runs
+# its canonical scripts/pr_review.py, which resolves the provider ledger + fail-closed gate
+# from that same checkout. This eliminates the vendored-copy drift and the downstream-lint
+# conflict (a vendored script can't satisfy every repo's ruff/mypy/pytest config at once):
+# the reviewer + gate + ledger are single-source in WSE and always current.
+#
+# Requires the Actions secrets:
+#   WSE_REVIEWER_READ_TOKEN  (a dedicated LEAST-PRIVILEGE credential: fine-grained PAT or
+#                             read-only App installation token, Contents:read on
+#                             workspace-shared-engineering ONLY. NOT the write-capable
+#                             ai-review-loop App key: that would be a privilege escalation.)
+#   AI_REVIEW_NVIDIA_API_KEY, AI_REVIEW_TOGETHER_API_KEY  (reviewer provider keys)
+# Absent the read token, the checkout fails and the job errors: no ungated review.
 #
 # SECURITY: triggered ONLY by an "@review" comment from an authorized member (OWNER/MEMBER/
-# COLLABORATOR), never by a fork's PR event. The job checks out the DEFAULT branch, so it always
-# runs main's trusted copy of the script; the PR's own diff is fetched as DATA (gh pr diff), never
-# executed. This closes the fork "pwn request" path (untrusted code + secrets in one job).
+# COLLABORATOR), never by a fork PR event. The reviewer script is fetched from WSE main
+# (trusted, code-owner-gated), never from the PR head; the PR diff is fetched as DATA
+# (gh pr diff), never executed.
 name: pr-review
 
 on:
@@ -26,12 +40,21 @@ jobs:
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     permissions:
-      contents: read          # read the trusted (default-branch) script
-      pull-requests: write     # post the review comment
+      pull-requests: write     # post the review comment (via github.token below)
     steps:
-      - name: Checkout default branch (trusted script, not the PR head)
+      - name: Check out the canonical reviewer + ledger (workspace-shared-engineering@main)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          repository: usehelloai/workspace-shared-engineering
+          ref: main
+          path: .wse
+          # WSE_REVIEWER_READ_TOKEN is a DEDICATED, LEAST-PRIVILEGE credential (a fine-grained PAT,
+          # or a read-only App installation token) scoped to Contents:read on
+          # workspace-shared-engineering ONLY. Do NOT use the write-capable ai-review-loop App key
+          # here: provisioning that org-wide, contents:write key in product CI would let any
+          # workflow in the repo mint a code-capable org token (privilege escalation). This job
+          # only needs to READ WSE, so it gets a read-only credential and nothing more.
+          token: ${{ secrets.WSE_REVIEWER_READ_TOKEN }}  # zizmor: ignore[secrets-outside-env]
           persist-credentials: false
 
       - name: Set up Python
@@ -42,11 +65,14 @@ jobs:
       - name: Install PyYAML
         run: pip install --quiet pyyaml==6.0.2
 
-      - name: Run PR review
+      - name: Run PR review (canonical script + fail-closed ledger from WSE)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.issue.number }}
           NVIDIA_API_KEY: ${{ secrets.AI_REVIEW_NVIDIA_API_KEY }}      # zizmor: ignore[secrets-outside-env]
           TOGETHER_API_KEY: ${{ secrets.AI_REVIEW_TOGETHER_API_KEY }}  # zizmor: ignore[secrets-outside-env]
-        run: python3 scripts/pr_review.py --repo "$REPO" --pr "$PR"
+          # provider_gate resolves this ledger (it also defaults to .wse/config via the script's
+          # own path, but set it explicitly so the fail-closed input is unambiguous).
+          AI_PROVIDER_POLICY: ${{ github.workspace }}/.wse/config/ai_provider_policy.yaml
+        run: python3 .wse/scripts/pr_review.py --repo "$REPO" --pr "$PR"
