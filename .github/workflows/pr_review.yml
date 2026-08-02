@@ -7,13 +7,11 @@
 # conflict (a vendored script can't satisfy every repo's ruff/mypy/pytest config at once):
 # the reviewer + gate + ledger are single-source in WSE and always current.
 #
-# Requires the Actions secrets:
-#   WSE_REVIEWER_READ_TOKEN  (a dedicated LEAST-PRIVILEGE credential: fine-grained PAT or
-#                             read-only App installation token, Contents:read on
-#                             workspace-shared-engineering ONLY. NOT the write-capable
-#                             ai-review-loop App key: that would be a privilege escalation.)
+# Requires the Actions secrets (all already org-provisioned to the fleet):
+#   AI_REVIEW_APP_ID, AI_REVIEW_APP_PRIVATE_KEY  (ai-review-loop App: mints a read-only,
+#     WSE-scoped checkout token at runtime, so no stored PAT and no write-capable key in CI)
 #   AI_REVIEW_NVIDIA_API_KEY, AI_REVIEW_TOGETHER_API_KEY  (reviewer provider keys)
-# Absent the read token, the checkout fails and the job errors: no ungated review.
+# The minted token can only READ workspace-shared-engineering; if minting fails the job errors.
 #
 # SECURITY: triggered ONLY by an "@review" comment from an authorized member (OWNER/MEMBER/
 # COLLABORATOR), never by a fork PR event. The reviewer script is fetched from WSE main
@@ -42,19 +40,25 @@ jobs:
     permissions:
       pull-requests: write     # post the review comment (via github.token below)
     steps:
+      - name: Mint a read-only token for the WSE checkout (from the ai-review-loop App)
+        id: wse-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.AI_REVIEW_APP_ID }}
+          private-key: ${{ secrets.AI_REVIEW_APP_PRIVATE_KEY }}
+          owner: usehelloai
+          repositories: workspace-shared-engineering
+          permission-contents: read
+
       - name: Check out the canonical reviewer + ledger (workspace-shared-engineering@main)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: usehelloai/workspace-shared-engineering
           ref: main
           path: .wse
-          # WSE_REVIEWER_READ_TOKEN is a DEDICATED, LEAST-PRIVILEGE credential (a fine-grained PAT,
-          # or a read-only App installation token) scoped to Contents:read on
-          # workspace-shared-engineering ONLY. Do NOT use the write-capable ai-review-loop App key
-          # here: provisioning that org-wide, contents:write key in product CI would let any
-          # workflow in the repo mint a code-capable org token (privilege escalation). This job
-          # only needs to READ WSE, so it gets a read-only credential and nothing more.
-          token: ${{ secrets.WSE_REVIEWER_READ_TOKEN }}  # zizmor: ignore[secrets-outside-env]
+          # Read-only, WSE-scoped token minted above from the ai-review-loop App: no stored
+          # PAT, and the token can only READ workspace-shared-engineering.
+          token: ${{ steps.wse-token.outputs.token }}
           persist-credentials: false
 
       - name: Set up Python
