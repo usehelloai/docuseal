@@ -38,6 +38,7 @@ jobs:
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     permissions:
+      contents: read           # gh pr diff reads the PR diff from repo contents
       pull-requests: write     # post the review comment (via github.token below)
     steps:
       - name: Mint a read-only token for the WSE checkout (from the ai-review-loop App)
