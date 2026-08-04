@@ -8,8 +8,9 @@
 # the reviewer + gate + ledger are single-source in WSE and always current.
 #
 # Requires the Actions secrets (all already org-provisioned to the fleet):
-#   AI_REVIEW_APP_ID, AI_REVIEW_APP_PRIVATE_KEY  (ai-review-loop App: mints a read-only,
-#     WSE-scoped checkout token at runtime, so no stored PAT and no write-capable key in CI)
+#   AI_REVIEW_READER_APP_ID, AI_REVIEW_READER_APP_PRIVATE_KEY  (dedicated READ-ONLY
+#     ai-review-reader App: Contents:read on workspace-shared-engineering only. Mints a
+#     short-lived per-run token; no write capability, so the key is safe in fleet CI.)
 #   AI_REVIEW_NVIDIA_API_KEY, AI_REVIEW_TOGETHER_API_KEY  (reviewer provider keys)
 # The minted token can only READ workspace-shared-engineering; if minting fails the job errors.
 #
@@ -41,12 +42,12 @@ jobs:
       contents: read           # gh pr diff reads the PR diff from repo contents
       pull-requests: write     # post the review comment (via github.token below)
     steps:
-      - name: Mint a read-only token for the WSE checkout (from the ai-review-loop App)
+      - name: Mint a read-only token for the WSE checkout (from the read-only ai-review-reader App)
         id: wse-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ secrets.AI_REVIEW_APP_ID }}  # zizmor: ignore[secrets-outside-env]
-          private-key: ${{ secrets.AI_REVIEW_APP_PRIVATE_KEY }}  # zizmor: ignore[secrets-outside-env]
+          app-id: ${{ secrets.AI_REVIEW_READER_APP_ID }}  # zizmor: ignore[secrets-outside-env]
+          private-key: ${{ secrets.AI_REVIEW_READER_APP_PRIVATE_KEY }}  # zizmor: ignore[secrets-outside-env]
           owner: usehelloai
           repositories: workspace-shared-engineering
           permission-contents: read
